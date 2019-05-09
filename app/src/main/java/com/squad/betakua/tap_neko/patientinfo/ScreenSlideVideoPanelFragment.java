@@ -1,32 +1,18 @@
 package com.squad.betakua.tap_neko.patientinfo;
 
-import android.Manifest;
-import android.content.pm.PackageManager;
-import android.net.Uri;
 import android.app.TimePickerDialog;
+import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.support.annotation.Nullable;
-import android.support.design.widget.FloatingActionButton;
-import android.support.v4.app.ActivityCompat;
 import android.support.v4.app.Fragment;
-import android.support.v4.content.ContextCompat;
-import android.util.DisplayMetrics;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-
-import android.widget.VideoView;
-
-import java.net.MalformedURLException;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.net.URL;
-
-import static com.google.zxing.integration.android.IntentIntegrator.REQUEST_CODE;
-
 import android.widget.Button;
+import android.widget.ImageButton;
+import android.widget.TextView;
 import android.widget.TimePicker;
 
 import com.squad.betakua.tap_neko.R;
@@ -37,8 +23,21 @@ import java.util.Calendar;
 
 
 public class ScreenSlideVideoPanelFragment extends Fragment {
+    private TextView videoTitle;
 
+    // Navigation Bar
+    private ImageButton navButtonLeft;
+    private ImageButton navButtonRight;
+    private OnButtonClickListener navButtonListener;
 
+    private String webUrl;
+    private String url;
+    private String pharmacyPhone;
+    private String pharmacyName;
+    private String pharmacist;
+    private String productName;
+    private String MOCK_PRODUCT_NAME = "Doxycycline 100mg Tablets";
+    private String MOCK_YOUTUBE_CODE = "ma_cmlU9DxU";
 
     @Override
     public View onCreateView(LayoutInflater inflater, ViewGroup container,
@@ -46,72 +45,61 @@ public class ScreenSlideVideoPanelFragment extends Fragment {
         ViewGroup rootView = (ViewGroup) inflater.inflate(
                 R.layout.fragment_video_panel, container, false);
 
+        navButtonLeft = rootView.findViewById(R.id.patient_view_text_button);
+        navButtonRight = rootView.findViewById(R.id.patient_tap_again_icon);
+        navButtonLeft.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                navButtonListener.onButtonClicked(v);
+            }
+        });
+        navButtonRight.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                navButtonListener.onButtonClicked(v);
+            }
+        });
 
         return rootView;
     }
 
     @Override
     public void onViewCreated(View view, @Nullable Bundle savedInstanceState) {
+        videoTitle = view.findViewById(R.id.patient_video_title);
+        productName = getArguments().getString("productName", "Aerochamber (Child)") + "\nProduct ID: " + getArguments().getString("productID", "80092323");
+        url = getArguments().getString("url", MOCK_YOUTUBE_CODE);
+        webUrl = getArguments().getString("webUrl", "https://www.aerochambervhc.com/instructions-for-use/");
+        pharmacyPhone = getArguments().getString("pharmacyPhone", "1-800-867-1389");
+        pharmacyName = getArguments().getString("pharmacyName", "Shoppers Drug Mart #2323");
+        pharmacist = getArguments().getString("pharmacist", "John Lee");
 
-        FloatingActionButton mainFab = getView().findViewById(R.id.mainFab);
-        FloatingActionButton callFab = getView().findViewById(R.id.callFab);
-        FloatingActionButton alertFab = getView().findViewById(R.id.alertFab);
+        videoTitle.setText(productName);
 
-
-        //VideoPlayer
-        // VideoView videoView = getView().findViewById(R.id.videoView);
-        //
-        // if (ContextCompat.checkSelfPermission(getContext(), Manifest.permission.INTERNET) != PackageManager.PERMISSION_GRANTED) {
-        //     ActivityCompat.requestPermissions(getActivity(), new String[]{Manifest.permission.INTERNET}, REQUEST_CODE);
-        // } else {
-        //     Uri uri = Uri.parse("https://www.youtube.com/watch?v=a1sn_UlUOio");
-        //     videoView.setVideoURI(uri);
-        //     videoView.start();
-        //     videoView.setOnClickListener(new View.OnClickListener() {
-        //
-        //         @Override
-        //         public void onClick(View view) {
-        //             DisplayMetrics metrics = new DisplayMetrics();
-        //             getActivity().getWindowManager().getDefaultDisplay().getMetrics(metrics);
-        //             android.widget.LinearLayout.LayoutParams params = (android.widget.LinearLayout.LayoutParams) videoView.getLayoutParams();
-        //             params.width = metrics.widthPixels;
-        //             params.height = metrics.heightPixels;
-        //             params.leftMargin = 0;
-        //             videoView.setLayoutParams(params);
-        //         }
-        //
-        //     });
-        // }
-
-        alertFab.setOnClickListener(new View.OnClickListener() {
-                                        @Override
-                                        public void onClick(View view) {
-                                            showTimePickerDialog();
-                                        }
-                                    });
-
+        // Youtube
         Button ytButton = getView().findViewById(R.id.open_yt_button);
-        ytButton.setText("Open in YouTube");
 
-
-        callFab.setVisibility(View.INVISIBLE);
-        alertFab.setVisibility(View.INVISIBLE);
-
-        mainFab.setOnClickListener((View v) -> {
-            if (callFab.getVisibility() == View.VISIBLE) {
-                callFab.setVisibility(View.INVISIBLE);
-                alertFab.setVisibility(View.INVISIBLE);
-            } else {
-                callFab.setVisibility(View.VISIBLE);
-                alertFab.setVisibility(View.VISIBLE);
-            }
-        });
-
+        String youtubeURI = "https://www.youtube.com/watch?v=" + url;
         ytButton.setOnClickListener((View v) -> {
             Intent browserIntent =
-                    new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/watch?v=a1sn_UlUOio"));
+                    new Intent(Intent.ACTION_VIEW, Uri.parse(youtubeURI));
             startActivity(browserIntent);
         });
+
+        // Web resources
+        Button webButton = getView().findViewById(R.id.open_web_button);
+        webButton.setOnClickListener((View v) -> {
+            Intent browserIntent =
+                    new Intent(Intent.ACTION_VIEW, Uri.parse(webUrl));
+            startActivity(browserIntent);
+        });
+
+        // Pharmacy details
+        TextView pharmacyNameView = getView().findViewById(R.id.pharmacy_name);
+        TextView pharmacyPhoneView = getView().findViewById(R.id.pharmacy_phone);
+        TextView pharmacistView = getView().findViewById(R.id.pharmacist);
+        pharmacyNameView.setText("Name: " + pharmacyName);
+        pharmacyPhoneView.setText("Phone: " + pharmacyPhone);
+        pharmacistView.setText("Pharmacist: " + pharmacist);
     }
 
     private void showTimePickerDialog() {
@@ -130,5 +118,9 @@ public class ScreenSlideVideoPanelFragment extends Fragment {
         mTimePicker.show();
     }
 
-
+    @Override
+    public void onAttach(Context context) {
+        super.onAttach(context);
+        navButtonListener = (OnButtonClickListener) context;
+    }
 }

@@ -1,18 +1,25 @@
 package com.squad.betakua.tap_neko.azure;
 
 import android.content.Context;
+import android.util.Log;
 
 import com.google.common.util.concurrent.ListenableFuture;
 import com.microsoft.azure.storage.CloudStorageAccount;
 import com.microsoft.azure.storage.StorageException;
-import com.microsoft.azure.storage.blob.*;
-import com.microsoft.cognitiveservices.speech.*;
+import com.microsoft.azure.storage.blob.CloudBlobClient;
+import com.microsoft.azure.storage.blob.CloudBlobContainer;
+import com.microsoft.azure.storage.blob.CloudBlockBlob;
+import com.microsoft.cognitiveservices.speech.SpeechConfig;
+import com.microsoft.cognitiveservices.speech.SpeechRecognizer;
+import com.microsoft.cognitiveservices.speech.audio.AudioConfig;
 import com.microsoft.cognitiveservices.speech.translation.SpeechTranslationConfig;
 import com.microsoft.cognitiveservices.speech.translation.TranslationRecognizer;
 import com.microsoft.windowsazure.mobileservices.MobileServiceClient;
+import com.microsoft.windowsazure.mobileservices.MobileServiceException;
 import com.microsoft.windowsazure.mobileservices.MobileServiceList;
 import com.microsoft.windowsazure.mobileservices.table.MobileServiceTable;
 import com.squad.betakua.tap_neko.BuildConfig;
+import com.squad.betakua.tap_neko.patientmedrecord.PatientMedRecord;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -27,15 +34,38 @@ public class AzureInterface {
     private static final String CONNECTION_STRING_TEMPLATE = "DefaultEndpointsProtocol=https;" +
             "AccountName=%s;" +
             "AccountKey=%s";
-    private static final String STORAGE_ACCOUNT_NAME = BuildConfig.AzureStorageAccountName;
-    private static final String STORAGE_ACCOUNT_KEY = BuildConfig.AzureStorageAccountKey;
-    private static final String SPEECH_SUB_KEY = BuildConfig.AzureSpeechSubscriptionKey;
+    private static final String SPEECH_SUB_KEY = BuildConfig.nekotap_speech_key1;
+    private static final String STORAGE_ACCOUNT_NAME = BuildConfig.azure_blob_storage_account_name;
+    private static final String STORAGE_ACCOUNT_KEY = BuildConfig.nekotap_blob_key1;
+    private static final String STORAGE_CONTAINER_NAME = BuildConfig.azure_blob_storage_blob_container_name;
     private static final String SERVICE_REGION = "westus";
+
     private static AzureInterface AZURE_INTERFACE = null;
+    private final SpeechConfig speechConfig;
     private final CloudStorageAccount storageAccount;
+    private OnDownloadAudioFileListener downloadAudioFileListener;
+    private OnUploadAudioFileListener uploadAudioFileListener;
+
+    // Mobile App Services
+    private static final String MOBILE_APP_SERVICES_URL = "https://nekotap.azurewebsites.net";
+    private static final String DEBUG_TABLE_NAME = "debug_item_table";
+    private static final String INFO_TABLE_NAME = "info_item_table";
+    private static final String DRUG_INFO_TABLE_NAME = "drug_info_item";
+    private static final String DRUG_RECORD_TABLE_NAME = "drug_record_table";
+    private static final String DEVICE_RECORD_TABLE_NAME = "device_record_table";
+    private static final String PHRASE_ITEM_TABLE_NAME = "phrase_table";
+    private static final String TRANSLATIONS_TABLE_NAME = "translated_drug_info";
+    private static final String PATIENT_MED_RECORD_TABLE_NAME = "patient_med_record";
+    private final MobileServiceClient mClient;
+    private final MobileServiceTable<DebugItem> debugTable;
     private final MobileServiceTable<InfoItem> infoTable;
     private final MobileServiceTable<DrugInfoItem> drugInfoTable;
-    private final SpeechConfig speechConfig;
+    private final MobileServiceTable<DrugRecord> drugRecordTable;
+    private final MobileServiceTable<DeviceRecord> deviceRecordTable;
+    private final MobileServiceTable<PhraseItem> phraseItemTable;
+    private final MobileServiceTable<TranslationsItem> translationsTable;
+    private final MobileServiceTable<PatientMedRecord> patientMedRecordTable;
+
 
     /**
      * Initialize singleton instance of Azure interface
@@ -70,10 +100,16 @@ public class AzureInterface {
                     STORAGE_ACCOUNT_NAME,
                     STORAGE_ACCOUNT_KEY);
             this.storageAccount = CloudStorageAccount.parse(connectionString);
-            final MobileServiceClient mobileServiceClient =
-                    new MobileServiceClient("https://neko-tap.azurewebsites.net", context);
-            this.infoTable = mobileServiceClient.getTable("InfoTable", InfoItem.class);
-            this.drugInfoTable = mobileServiceClient.getTable("DrugInfoTable", DrugInfoItem.class);
+            mClient = new MobileServiceClient(MOBILE_APP_SERVICES_URL, context);
+
+            this.infoTable = mClient.getTable(INFO_TABLE_NAME, InfoItem.class);
+            this.debugTable = mClient.getTable(DEBUG_TABLE_NAME, DebugItem.class);
+            this.drugInfoTable = mClient.getTable(DRUG_INFO_TABLE_NAME, DrugInfoItem.class);
+            this.drugRecordTable = mClient.getTable(DRUG_RECORD_TABLE_NAME, DrugRecord.class);
+            this.deviceRecordTable = mClient.getTable(DEVICE_RECORD_TABLE_NAME, DeviceRecord.class);
+            this.phraseItemTable = mClient.getTable(PHRASE_ITEM_TABLE_NAME, PhraseItem.class);
+            this.translationsTable = mClient.getTable(TRANSLATIONS_TABLE_NAME, TranslationsItem.class);
+            this.patientMedRecordTable = mClient.getTable(PATIENT_MED_RECORD_TABLE_NAME, PatientMedRecord.class);
             this.speechConfig = SpeechConfig.fromSubscription(SPEECH_SUB_KEY, SERVICE_REGION);
         } catch (URISyntaxException | InvalidKeyException | MalformedURLException e) {
             throw new AzureInterfaceException(e.getMessage());
@@ -86,19 +122,75 @@ public class AzureInterface {
      * @param nfcID      NFC ID
      * @param productID  Product ID
      * @param transcript Transcript of instruction audio
+     * @param url        URL of instruction video
      */
-    public void writeInfoItem(String nfcID,
-                              String productID,
-                              String transcript,
-                              String url) {
+    public ListenableFuture<InfoItem> writeInfoItem(String nfcID,
+                                                    String productID,
+                                                    String productName,
+                                                    String transcript,
+                                                    String url,
+                                                    String webUrl,
+                                                    String pharmacyPhone,
+                                                    String pharmacyName,
+                                                    String pharmacist,
+                                                    String translated,
+                                                    String reminder) {
         final InfoItem item = new InfoItem();
-        item.setId(UUID.randomUUID().toString());
+        // Log.e("writing... ", nfcID + " " + productID + " " + productName + " " + transcript);
+        // Log.e("writing... ", url + " " + webUrl + " " + pharmacyPhone + " " + pharmacyName);
+        // Log.e("writing... ", pharmacist + " " + translated + " " + reminder);
+
+        item.setId(nfcID);
         item.setNfcID(nfcID);
         item.setProductID(productID);
+        item.setProductName(productName);
         item.setTranscript(transcript);
+        item.setTranslationsID(UUID.randomUUID().toString());
         item.setURL(url);
-        this.infoTable.insert(item);
+        item.setWebURL(webUrl);
+        item.setPharmacyPhone(pharmacyPhone);
+        item.setPharmacyName(pharmacyName);
+        item.setPharmacist(pharmacist);
+        item.setTranslated(translated);
+        item.setReminder(reminder);
+
+        return this.infoTable.insert(item);
     }
+
+    public ListenableFuture<InfoItem> checkIfInfoItemRowExists(String id) {
+        return this.infoTable.lookUp(id);
+    }
+
+    public ListenableFuture<InfoItem> updateInfoItem(String nfcID,
+                                                     String productID,
+                                                     String productName,
+                                                     String transcript,
+                                                     String url,
+                                                     String webUrl,
+                                                     String pharmacyPhone,
+                                                     String pharmacyName,
+                                                     String pharmacist,
+                                                     String translated,
+                                                     String reminder) {
+        final InfoItem item = new InfoItem();
+        Log.e("UPDATING:", nfcID + " " + productID + " " + transcript + " " + url);
+
+        item.setId(nfcID);
+        item.setNfcID(nfcID);
+        item.setProductID(productID);
+        item.setProductName(productName);
+        item.setTranscript(transcript);
+        item.setTranslationsID(UUID.randomUUID().toString());
+        item.setURL(url);
+        item.setWebURL(webUrl);
+        item.setPharmacyName(pharmacyName);
+        item.setPharmacyPhone(pharmacyPhone);
+        item.setPharmacist(pharmacist);
+        item.setTranslated(translated);
+        item.setReminder(reminder);
+        return this.infoTable.update(item);
+    }
+
 
     /**
      * Look up an info item in Azure InfoTable by NFC ID
@@ -107,14 +199,15 @@ public class AzureInterface {
      * @return Future for a list of matching InfoItems
      */
     public ListenableFuture<MobileServiceList<InfoItem>> readInfoItem(String nfcID) {
+        Log.e("trying to read id ", nfcID);
         return this.infoTable.where().field("nfcID").eq(nfcID).execute();
     }
 
     /**
      * Write a new drug info item to the Azure DrugInfoTable
      *
-     * @param nfcID NFC ID
-     * @param text Text of instructions
+     * @param nfcID      product ID
+     * @param text       Text of instructions
      * @param youtubeURL YouTube URL of how-to video
      */
     public void writeDrugInfoItem(String nfcID, String text, String youtubeURL) {
@@ -128,11 +221,12 @@ public class AzureInterface {
 
     /**
      * Look up a drug info item in Azure DrugInfoTable by NFC ID
-     * @param nfcID NFC ID to look up
+     *
+     * @param productID ProductID ID to look up
      * @return Future for a list of matching InfoItems
      */
-    public ListenableFuture<MobileServiceList<DrugInfoItem>> readDrugInfoItem(String nfcID) {
-        return this.drugInfoTable.where().field("nfcID").eq(nfcID).execute();
+    public ListenableFuture<MobileServiceList<DrugInfoItem>> readDrugInfoItem(String productID) {
+        return this.drugInfoTable.where().field("productID").eq(productID).execute();
     }
 
     /**
@@ -143,14 +237,17 @@ public class AzureInterface {
      * @param in         InputStream to read from
      * @param length     Length in bytes of file (or -1 if unknown)
      */
-    public void uploadAudio(final String audioTitle, final InputStream in, final long length) {
+    public void uploadAudio(final String audioTitle, final InputStream in, final long length, OnUploadAudioFileListener listener) {
+        uploadAudioFileListener = listener;
         new Thread(() -> {
             try {
                 final CloudBlobClient blobClient = this.storageAccount.createCloudBlobClient();
                 final CloudBlobContainer container =
-                        blobClient.getContainerReference("instructionaudio");
+                        blobClient.getContainerReference(STORAGE_CONTAINER_NAME);
                 final CloudBlockBlob blockBlob = container.getBlockBlobReference(audioTitle);
                 blockBlob.upload(in, length);
+                uploadAudioFileListener.onUploadComplete("SUCCESS");
+                Log.e("Azure uploadAudio: ", "uploaded with length: " + length + " key: " + audioTitle + " container: " + STORAGE_CONTAINER_NAME);
             } catch (URISyntaxException | StorageException | IOException e) {
                 e.printStackTrace();
             }
@@ -163,14 +260,18 @@ public class AzureInterface {
      * @param audioTitle Title of audio clip in Azure Storage; note: should be `$NFCID_$LANG`
      * @param out        OutputStream to write to
      */
-    public void downloadAudio(final String audioTitle, final OutputStream out) {
+    public void downloadAudio(final String audioTitle, final OutputStream out, OnDownloadAudioFileListener listener) {
+        downloadAudioFileListener = listener;
+
         new Thread(() -> {
             try {
                 final CloudBlobClient blobClient = this.storageAccount.createCloudBlobClient();
                 final CloudBlobContainer container =
-                        blobClient.getContainerReference("instructionaudio");
+                        blobClient.getContainerReference(STORAGE_CONTAINER_NAME);
                 final CloudBlockBlob blockBlob = container.getBlockBlobReference(audioTitle);
                 blockBlob.download(out);
+                downloadAudioFileListener.onDownloadComplete("SUCCESS");
+                Log.e("Azure downloadAudio: ", "downloaded reference" + audioTitle + " and container " + STORAGE_CONTAINER_NAME);
             } catch (URISyntaxException | StorageException e) {
                 try {
                     throw new AzureInterfaceException(e.getMessage());
@@ -192,8 +293,8 @@ public class AzureInterface {
      *
      * @return New speech recognizer
      */
-    public SpeechRecognizer getSpeechRecognizer() {
-        return new SpeechRecognizer(speechConfig);
+    public SpeechRecognizer getSpeechRecognizer(AudioConfig audioConfig) {
+        return new SpeechRecognizer(speechConfig, audioConfig);
     }
 
     /**
@@ -215,5 +316,78 @@ public class AzureInterface {
             config.addTargetLanguage(lang);
         }
         return new TranslationRecognizer(config);
+    }
+
+    /**
+     * Look up available translations
+     *
+     * @param translationsID translations ID to look up
+     * @return Future for a list of matching TranslationItems
+     */
+    public ListenableFuture<MobileServiceList<TranslationsItem>> readTranslationsItem(String translationsID) {
+        return this.translationsTable.where().field("id").eq(translationsID).execute();
+    }
+
+    /**
+     * Populate Azure with mock drug database
+     *
+     */
+    public ListenableFuture<DrugRecord> writeDrugRecord(DrugRecord drugRecord) {
+        return this.drugRecordTable.insert(drugRecord);
+    }
+
+    /**
+     * Lookup single drug record
+     *
+     */
+    public ListenableFuture<MobileServiceList<DrugRecord>> readDrugRecord(String productID) {
+        Log.e("trying to read id ", productID);
+        return this.drugRecordTable.where().field("productID").eq(productID).execute();
+    }
+
+    /**
+     * Populate Azure with mock device database
+     *
+     */
+    public ListenableFuture<DeviceRecord> writeDeviceRecord(DeviceRecord deviceRecord) {
+        return this.deviceRecordTable.insert(deviceRecord);
+    }
+
+    /**
+     * Populate Azure with counselling phrases
+     *
+     */
+    public ListenableFuture<PhraseItem> writePhraseItem(PhraseItem phraseItem) {
+        return this.phraseItemTable.insert(phraseItem);
+    }
+
+    /**
+     * Add a drug to the patient record
+     *
+     */
+    public ListenableFuture<PatientMedRecord> writePatientMedRecord(PatientMedRecord medRecord) {
+        Log.e("---------", medRecord.getProductID());
+        Log.e("---------", medRecord.getRxNumber());
+        return this.patientMedRecordTable.insert(medRecord);
+    }
+
+    /**
+     * Read all drugs from the patient record
+     *
+     */
+    public ListenableFuture<MobileServiceList<PatientMedRecord>> readPatientMedRecord() throws MobileServiceException {
+        return this.patientMedRecordTable.where().execute();
+    }
+
+    public ListenableFuture<PatientMedRecord> checkIfPatientMedRecordExists(String rxNumber) {
+        return this.patientMedRecordTable.lookUp(rxNumber);
+    }
+
+    /**
+     * Delete a drug from the patient record
+     *
+     */
+    public ListenableFuture<PatientMedRecord> deletePatientMedRecord(PatientMedRecord medRecord) {
+        return this.patientMedRecordTable.insert(medRecord);
     }
 }

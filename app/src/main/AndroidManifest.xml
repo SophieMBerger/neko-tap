@@ -6,12 +6,12 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.NFC" />
-    <uses-permission android:name="android.permission.VIBRATE"/>
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.CALL_PHONE"/>
+    <uses-permission android:name="android.permission.CALL_PHONE" />
 
     <application
         android:name=".App"
@@ -41,22 +41,36 @@
             android:name=".PharmacistActivity"
             android:theme="@style/AppTheme.NoActionBar" />
         <activity
-            android:name=".audiorecord.AudioRecorderActivity"
+            android:name=".pharmacistsettings.PharmacistSettingsActivity"
+            android:theme="@style/AppTheme.NoActionBar" />
+        <activity
+            android:name=".audiorecord.AzureSpeechActivity"
             android:theme="@style/AppTheme.NoActionBar" />
         <activity
             android:name=".barcode.BarcodeScannerActivity"
             android:theme="@style/AppTheme.NoActionBar" />
         <activity
             android:name=".nfc.NFCActivity"
-            android:label="@string/nfc_activity"
             android:theme="@style/AppTheme.NoActionBar" />
         <activity
             android:name=".nfc.NFCPatientActivity"
-            android:label="@string/nfc_activity"
             android:theme="@style/AppTheme.NoActionBar" />
-        <receiver android:name=".notifications.AlarmReceiver"
-            android:enabled="true">
-        </receiver>
+        <activity
+            android:name=".notifications.RefillReminder"
+            android:theme="@style/AppTheme.NoActionBar" />
+        <activity
+            android:name=".notifications.RefillReminderSplash"
+            android:theme="@style/AppTheme.NoActionBar" />
+        <activity
+            android:name=".patientmedrecord.AddMedRecordSplash"
+            android:theme="@style/AppTheme.NoActionBar" />
+        <activity
+            android:name=".patientmedrecord.MedRecordActivity"
+            android:theme="@style/AppTheme.NoActionBar" />
+
+        <receiver
+            android:name=".notifications.AlarmReceiver"
+            android:enabled="true"></receiver>
     </application>
 
 </manifest>

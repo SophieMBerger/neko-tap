@@ -6,11 +6,7 @@ import android.content.Intent;
 import android.media.AudioManager;
 import android.media.ToneGenerator;
 import android.nfc.NdefMessage;
-import android.nfc.NdefRecord;
 import android.nfc.NfcAdapter;
-import android.nfc.Tag;
-import android.nfc.tech.MifareClassic;
-import android.nfc.tech.MifareUltralight;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -22,27 +18,42 @@ import android.speech.tts.TextToSpeech;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.view.View;
+import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import com.airbnb.lottie.LottieAnimationView;
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.microsoft.windowsazure.mobileservices.MobileServiceList;
+import com.squad.betakua.tap_neko.Constants;
 import com.squad.betakua.tap_neko.PatientActivity;
 import com.squad.betakua.tap_neko.R;
+import com.squad.betakua.tap_neko.azure.AzureInterface;
+import com.squad.betakua.tap_neko.azure.AzureInterfaceException;
+import com.squad.betakua.tap_neko.azure.InfoItem;
+import com.squad.betakua.tap_neko.notifications.RefillReminderSplash;
+import com.squad.betakua.tap_neko.patientmedrecord.AddMedRecordSplash;
+import com.squad.betakua.tap_neko.patientmedrecord.PatientMedRecord;
 
-import java.io.UnsupportedEncodingException;
-import java.util.HashMap;
 import java.util.Locale;
 
 public class NFCPatientActivity extends AppCompatActivity {
     public static final int NFC_REQ_CODE = 123;
     public static final String NFC_ID_KEY = "nfc_id";
-
+    public static final int REFILL_SPLASH_REQ_CODE = 124;
+    public static final String REFILL_SPLASH_KEY = "refill_splash_id";
+    public static final int ADD_MED_RECORD_SPLASH_REQ_CODE = 125;
+    public static final String ADD_MED_RECORD_SPLASH_KEY = "add_med_record_splash_id";
+    Button nfcDemoBtn;
     String nfcId;
+    String barcodeId;
+    String productName;
     TextView text;
     TextView textSuccess;
     NfcAdapter nfcAdapter;
     PendingIntent pendingIntent;
-    static final String TAG = "TTS";
     TextToSpeech mTts;
     LottieAnimationView nfcAnimation;
     LottieAnimationView checkAnimation;
@@ -61,6 +72,18 @@ public class NFCPatientActivity extends AppCompatActivity {
         checkAnimation = findViewById(R.id.lottie_nfc_success);
         checkAnimation.setVisibility(View.GONE);
 
+        // DEMO
+        nfcDemoBtn = findViewById(R.id.nfc_demo_btn);
+        nfcDemoBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                demoNFCCallback();
+            }
+        });
+        if (Constants.IS_DEMO) {
+            nfcDemoBtn.setVisibility(View.VISIBLE);
+        }
+
         nfcAdapter = NfcAdapter.getDefaultAdapter(this);
         if (nfcAdapter == null) {
             Toast.makeText(this, "No NFC", Toast.LENGTH_SHORT).show();
@@ -75,40 +98,44 @@ public class NFCPatientActivity extends AppCompatActivity {
                         .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP), 0);
 
 
-        // text-to-speech: prompt user to tap
-        // TODO: replace with azure text-to-speech?
-        // mTts = new TextToSpeech(getApplicationContext(), new TextToSpeech.OnInitListener() {
-        //     @Override
-        //     public void onInit(int status) {
-        //         if (status == TextToSpeech.SUCCESS) {
-        //             int result = mTts.setLanguage(Locale.KOREA);
-        //             if (result == TextToSpeech.LANG_MISSING_DATA
-        //                     || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-        //                 Toast.makeText(getApplicationContext(), "This language is not supported", Toast.LENGTH_SHORT).show();
-        //             }
-        //             else{
-        //                 Log.v("TTS","onInit succeeded");
-        //                 speak("Tap your phone against the bottle cap or medical device tag");
-        //             }
-        //         } else {
-        //             Toast.makeText(getApplicationContext(), "Initialization failed", Toast.LENGTH_SHORT).show();
-        //         }
-        //     }
-        // });
+        mTts = new TextToSpeech(getApplicationContext(), new TextToSpeech.OnInitListener() {
+            @Override
+            public void onInit(int status) {
+                if (status == TextToSpeech.SUCCESS) {
+                    mTts.setSpeechRate(0.7f);
+
+                    int result = mTts.setLanguage(Locale.ENGLISH);
+                    if (result == TextToSpeech.LANG_MISSING_DATA
+                            || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                        Toast.makeText(getApplicationContext(), "This language is not supported", Toast.LENGTH_SHORT).show();
+                    } else {
+                        Log.v("TTS", "onInit succeeded");
+                        speak("Please tap your phone against your prescription bottle cap.");
+                    }
+                } else {
+                    Toast.makeText(getApplicationContext(), "Initialization failed", Toast.LENGTH_SHORT).show();
+                }
+            }
+        });
     }
 
-    void speak(String s){
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            Log.v(TAG, "Speak new API");
-            Bundle bundle = new Bundle();
-            bundle.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC);
-            mTts.speak(s, TextToSpeech.QUEUE_FLUSH, bundle, null);
-        } else {
-            Log.v(TAG, "Speak old API");
-            HashMap<String, String> param = new HashMap<>();
-            param.put(TextToSpeech.Engine.KEY_PARAM_STREAM, String.valueOf(AudioManager.STREAM_MUSIC));
-            mTts.speak(s, TextToSpeech.QUEUE_FLUSH, param);
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == REFILL_SPLASH_REQ_CODE && resultCode == RESULT_OK) {
+            boolean acceptsRefillNotification = data.getBooleanExtra(REFILL_SPLASH_KEY, false);
+            Log.e("--- INTENT ----", "result is: " + acceptsRefillNotification);
+            startPatientIntent();
+        } else if (requestCode == ADD_MED_RECORD_SPLASH_REQ_CODE && resultCode == RESULT_OK) {
+            boolean acceptsAddMedRecord = data.getBooleanExtra(ADD_MED_RECORD_SPLASH_KEY, false);
+            Log.e("--- INTENT ----", "result is: " + acceptsAddMedRecord);
+            startPatientIntent();
         }
+    }
+
+    private void speak(String s) {
+        Bundle bundle = new Bundle();
+        bundle.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC);
+        // mTts.speak(s, TextToSpeech.QUEUE_FLUSH, bundle, null);
     }
 
     @Override
@@ -129,88 +156,18 @@ public class NFCPatientActivity extends AppCompatActivity {
         startActivity(intent);
     }
 
-    private String dumpTagData(Tag tag) {
-        StringBuilder sb = new StringBuilder();
-        byte[] id = tag.getId();
-        nfcId = Utils.toHex(id);
-
-        // TODO: Here, we transmit the ID to the callback
-        sb.append("ID (hex): ").append(Utils.toHex(id)).append('\n');
-        sb.append("ID (reversed hex): ").append(Utils.toReversedHex(id)).append('\n');
-        sb.append("ID (dec): ").append(Utils.toDec(id)).append('\n');
-        sb.append("ID (reversed dec): ").append(Utils.toReversedDec(id)).append('\n');
-
-        String prefix = "android.nfc.tech.";
-        sb.append("Technologies: ");
-        for (String tech : tag.getTechList()) {
-            sb.append(tech.substring(prefix.length()));
-            sb.append(", ");
-        }
-
-        sb.delete(sb.length() - 2, sb.length());
-
-        for (String tech : tag.getTechList()) {
-            if (tech.equals(MifareClassic.class.getName())) {
-                sb.append('\n');
-                String type = "Unknown";
-
-                try {
-                    MifareClassic mifareTag = MifareClassic.get(tag);
-
-                    switch (mifareTag.getType()) {
-                        case MifareClassic.TYPE_CLASSIC:
-                            type = "Classic";
-                            break;
-                        case MifareClassic.TYPE_PLUS:
-                            type = "Plus";
-                            break;
-                        case MifareClassic.TYPE_PRO:
-                            type = "Pro";
-                            break;
-                    }
-                    sb.append("Mifare Classic type: ");
-                    sb.append(type);
-                    sb.append('\n');
-
-                    sb.append("Mifare size: ");
-                    sb.append(mifareTag.getSize() + " bytes");
-                    sb.append('\n');
-
-                    sb.append("Mifare sectors: ");
-                    sb.append(mifareTag.getSectorCount());
-                    sb.append('\n');
-
-                    sb.append("Mifare blocks: ");
-                    sb.append(mifareTag.getBlockCount());
-                } catch (Exception e) {
-                    sb.append("Mifare classic error: " + e.getMessage());
-                }
-            }
-
-            if (tech.equals(MifareUltralight.class.getName())) {
-                sb.append('\n');
-                MifareUltralight mifareUlTag = MifareUltralight.get(tag);
-                String type = "Unknown";
-                switch (mifareUlTag.getType()) {
-                    case MifareUltralight.TYPE_ULTRALIGHT:
-                        type = "Ultralight";
-                        break;
-                    case MifareUltralight.TYPE_ULTRALIGHT_C:
-                        type = "Ultralight C";
-                        break;
-                }
-                sb.append("Mifare Ultralight type: ");
-                sb.append(type);
-            }
-        }
-
-        return sb.toString();
-    }
-
     @Override
     protected void onNewIntent(Intent intent) {
         setIntent(intent);
         resolveIntent(intent);
+    }
+
+    private void demoNFCCallback() {
+        nfcId = Constants.DEMO_NFC_CODE.toString();
+        // Intent data = new Intent();
+        // data.putExtra(NFC_ID_KEY, Constants.DEMO_NFC_CODE);
+        // setResult(RESULT_OK, data);
+        displaySuccessAnimation();
     }
 
     private void resolveIntent(Intent intent) {
@@ -230,37 +187,23 @@ public class NFCPatientActivity extends AppCompatActivity {
                 }
 
             } else {
-                byte[] empty = new byte[0];
                 byte[] id = intent.getByteArrayExtra(NfcAdapter.EXTRA_ID);
-                nfcId = Utils.toHex(id);
-                Tag tag = (Tag) intent.getParcelableExtra(NfcAdapter.EXTRA_TAG);
-                byte[] payload = dumpTagData(tag).getBytes();
-                NdefRecord record = new NdefRecord(NdefRecord.TNF_UNKNOWN, empty, id, payload);
-                NdefMessage msg = new NdefMessage(new NdefRecord[] {record});
-                msgs = new NdefMessage[] {msg};
                 Intent data = new Intent();
+
+                // TODO: check with Azure if the nfcID exists
+                // if so, then proceed as usual
+                // otherwise, display a message like "nfc tag unrecognized" and try again
+
+                nfcId = Utils.toHex(id);
                 data.putExtra(NFC_ID_KEY, nfcId);
                 setResult(NFC_REQ_CODE, data);
             }
 
-            displayMsgs(msgs);
+            displayMsgs();
         }
     }
 
-    private void displayMsgs(NdefMessage[] msgs) {
-        if (msgs == null || msgs.length == 0)
-            return;
-
-        // StringBuilder builder = new StringBuilder();
-        // List<ParsedNdefRecord> records = NdefMessageParser.parse(msgs[0]);
-        // final int size = records.size();
-        //
-        // for (int i = 0; i < size; i++) {
-        //     ParsedNdefRecord record = records.get(i);
-        //     String str = record.str();
-        //     builder.append(str).append("\n");
-        // }
-
+    private void displayMsgs() {
         // Play a noise
         ToneGenerator toneG = new ToneGenerator(AudioManager.STREAM_NOTIFICATION, ToneGenerator.MAX_VOLUME);
         toneG.startTone(ToneGenerator.TONE_CDMA_ANSWER, 200); //200 is duration in ms
@@ -289,11 +232,102 @@ public class NFCPatientActivity extends AppCompatActivity {
         handler.postDelayed(new Runnable() {
             @Override
             public void run() {
-                Intent patientIntent = new Intent(getApplicationContext(), PatientActivity.class);
-                patientIntent.putExtra(NFC_ID_KEY, nfcId);
-                startActivity(patientIntent);
+                checkForRefillNotification();
             }
-        }, 2500);
+        }, 2000);
     }
 
+    private void checkForRefillNotification() {
+        try {
+            ListenableFuture<MobileServiceList<InfoItem>> infoItemsFuture = AzureInterface.getInstance().readInfoItem(nfcId);
+            Futures.addCallback(infoItemsFuture, new FutureCallback<MobileServiceList<InfoItem>>() {
+                public void onSuccess(MobileServiceList<InfoItem> infoItems) {
+                    String reminder = infoItems.get(0).getReminder();
+                    if (reminder != null && !reminder.equals("")) {
+                        barcodeId = infoItems.get(0).getProductID();
+                        productName = infoItems.get(0).getProductName();
+                        addNewMedRecord();
+                        startRefillSplashIntent();
+                    } else {
+                        startPatientIntent();
+                    }
+                }
+
+                public void onFailure(Throwable t) {
+                    Log.e("HERE11", "fail " + t.toString());
+                    t.printStackTrace();
+                }
+            });
+        } catch (AzureInterfaceException e) {
+            Log.e("ERROR:", e.toString());
+        }
+    }
+
+    private void checkForAddMedRecord() {
+        // TODO: actually check for the med record here
+        startAddMedRecordSplashIntent();
+
+        // try {
+        //     ListenableFuture<MobileServiceList<PatientMedRecord>> infoItemsFuture = AzureInterface.getInstance().checkIfPatientMedRecordExists(barcodeId);
+        //     Futures.addCallback(infoItemsFuture, new FutureCallback<MobileServiceList<InfoItem>>() {
+        //         public void onSuccess(MobileServiceList<InfoItem> infoItems) {
+        //             String reminder = infoItems.get(0).getReminder();
+        //             if (reminder != null && !reminder.equals("")) {
+        //                 barcodeId = infoItems.get(0).getProductID();
+        //                 productName = infoItems.get(0).getProductName();
+        //
+        //                 startRefillSplashIntent();
+        //             } else {
+        //                 startAddMedRecordSplashIntent();
+        //             }
+        //         }
+        //
+        //         public void onFailure(Throwable t) {
+        //             Log.e("HERE11", "fail " + t.toString());
+        //             t.printStackTrace();
+        //         }
+        //     });
+        // } catch (AzureInterfaceException e) {
+        //     Log.e("ERROR:", e.toString());
+        // }
+    }
+
+    private void startPatientIntent() {
+        Intent patientIntent = new Intent(getApplicationContext(), PatientActivity.class);
+        patientIntent.putExtra(NFC_ID_KEY, nfcId);
+        Log.e("nfcID1", nfcId);
+        startActivity(patientIntent);
+    }
+
+    private void startRefillSplashIntent() {
+        Intent refillSplashIntent = new Intent(getApplicationContext(), RefillReminderSplash.class);
+        refillSplashIntent.putExtra("barcodeId", barcodeId);
+        refillSplashIntent.putExtra("productName", productName);
+        startActivityForResult(refillSplashIntent, REFILL_SPLASH_REQ_CODE);
+    }
+
+    private void startAddMedRecordSplashIntent() {
+        Intent refillSplashIntent = new Intent(getApplicationContext(), AddMedRecordSplash.class);
+        refillSplashIntent.putExtra("barcodeId", barcodeId);
+        refillSplashIntent.putExtra("productName", productName);
+        startActivityForResult(refillSplashIntent, ADD_MED_RECORD_SPLASH_REQ_CODE);
+    }
+
+    private void addNewMedRecord() {
+        PatientMedRecord record = new PatientMedRecord();
+        record.setId(nfcId);
+        Log.e("awefawef", "fff: " + barcodeId);
+        record.setProductID(barcodeId);
+        record.setRxNumber(barcodeId);
+        record.setNfcID(nfcId);
+        record.setDirections("Take one tablet once daily."); // TODO: mock
+        record.setQuantity("30"); // TODO: mock
+        record.setRefills("3"); // TODO: mock
+
+        try {
+            AzureInterface.getInstance().writePatientMedRecord(record);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
 }

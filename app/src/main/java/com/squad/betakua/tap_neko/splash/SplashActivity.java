@@ -2,9 +2,8 @@ package com.squad.betakua.tap_neko.splash;
 
 import android.content.Intent;
 import android.graphics.drawable.AnimationDrawable;
-import android.support.constraint.ConstraintLayout;
-import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
+import android.support.v7.app.AppCompatActivity;
 import android.view.View;
 import android.widget.Button;
 
@@ -14,12 +13,13 @@ import com.squad.betakua.tap_neko.auth.AuthActivity;
 import com.squad.betakua.tap_neko.azure.AzureInterface;
 import com.squad.betakua.tap_neko.azure.AzureInterfaceException;
 import com.squad.betakua.tap_neko.nfc.NFCPatientActivity;
+import com.squad.betakua.tap_neko.patientmedrecord.MedRecordActivity;
 
 public class SplashActivity extends AppCompatActivity {
 
-    private boolean IS_DEV_MODE = true;
+    private boolean IS_DEV_MODE = true; // add button to access pharmacist interface
     private boolean isPatient = true;
-    // private boolean isPatient = true;
+    // private boolean isPatient = false;
     private boolean bypassAuth = true;
 
     @Override
@@ -33,8 +33,7 @@ public class SplashActivity extends AppCompatActivity {
         if (!IS_DEV_MODE) pharm_app.setVisibility(View.INVISIBLE);
 
         // background gradient animation
-        ConstraintLayout constraintLayout = findViewById(R.id.splash_screen);
-        AnimationDrawable animationDrawable = (AnimationDrawable) constraintLayout.getBackground();
+        AnimationDrawable animationDrawable = (AnimationDrawable) splashScreen.getBackground();
         animationDrawable.setEnterFadeDuration(2000);
         animationDrawable.setExitFadeDuration(4000);
         animationDrawable.start();
@@ -50,13 +49,16 @@ public class SplashActivity extends AppCompatActivity {
     public void onClick(View v) {
         int id = v.getId();
 
+        // Intent apharmIntent = new Intent(getApplicationContext(), AzureSpeechActivity.class);
+        // startActivity(apharmIntent);
+
         if (id == R.id.pharm_app) {
             Intent pharmIntent = new Intent(getApplicationContext(), PharmacistActivity.class);
             startActivity(pharmIntent);
         } else if (id == R.id.splash_screen) {
             if (isPatient) {
-                Intent patientIntent = new Intent(getApplicationContext(), NFCPatientActivity.class); //NFCPatientActivity.class
-                startActivity(patientIntent);
+                Intent medRecordIntent = new Intent(getApplicationContext(), MedRecordActivity.class); //NFCPatientActivity.class
+                startActivity(medRecordIntent);
             } else {
                 if (bypassAuth) {
                     Intent pharmIntent = new Intent(getApplicationContext(), PharmacistActivity.class);
